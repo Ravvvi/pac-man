@@ -3,14 +3,15 @@ import sys
 import random
 import math
 
-# Initialize Pygame
+# Initialize Pygame and Mixer (Audio)
 pygame.init()
+pygame.mixer.init() # Inisialisasi modul suara
 pygame.font.init()
 
 # Game Constants
 TILE_SIZE = 40
 FPS = 60
-POWERUP_DURATION = 7000 # 7000 milidetik (7 detik)
+POWERUP_DURATION = 7000 # 7 detik
 
 # Colors
 BLACK = (0, 0, 0)
@@ -18,7 +19,46 @@ BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
-CYAN = (0, 255, 255) # Warna hantu saat takut
+CYAN = (0, 255, 255)
+
+# --- LOAD AUDIO ASSETS ---
+try:
+    pygame.mixer.music.load("bgm.mp3")
+    pygame.mixer.music.set_volume(0.4) 
+    pygame.mixer.music.play(-1) 
+except Exception:
+    print("Warning: bgm.mp3 tidak ditemukan.")
+
+try:
+    chomp_sound = pygame.mixer.Sound("chomp.wav")
+    chomp_sound.set_volume(0.3)
+except Exception:
+    chomp_sound = None
+    print("Warning: chomp.wav tidak ditemukan.")
+
+try:
+    death_sound = pygame.mixer.Sound("death.wav")
+    death_sound.set_volume(0.7)
+except Exception:
+    death_sound = None
+    print("Warning: death.wav tidak ditemukan.")
+
+# --- LOAD IMAGE ASSETS ---
+# Load Hantu Normal
+try:
+    raw_ghost_img = pygame.image.load("ghost.png")
+    ghost_img = pygame.transform.scale(raw_ghost_img, (TILE_SIZE - 10, TILE_SIZE - 10))
+except Exception:
+    ghost_img = None
+    print("Warning: ghost.png not found.")
+
+# Load Hantu Biru (Saat Ketakutan)
+try:
+    raw_scared_img = pygame.image.load("scared_ghost.png")
+    scared_ghost_img = pygame.transform.scale(raw_scared_img, (TILE_SIZE - 10, TILE_SIZE - 10))
+except Exception:
+    scared_ghost_img = None
+    print("Warning: scared_ghost.png not found.")
 
 # Map Definition (1 = Wall, 0 = Pellet, 2 = Power Pellet, 9 = Ghost, 8 = Player)
 level_map = [
@@ -38,16 +78,9 @@ level_map = [
 SCREEN_WIDTH = len(level_map[0]) * TILE_SIZE
 SCREEN_HEIGHT = len(level_map) * TILE_SIZE
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Pac-Man: Lives & Power-Ups")
+pygame.display.set_caption("Pac-Man: Full Assets")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont("Arial", 24)
-
-# Load Ghost Image
-try:
-    raw_ghost_img = pygame.image.load("ghost.png")
-    ghost_img = pygame.transform.scale(raw_ghost_img, (TILE_SIZE - 10, TILE_SIZE - 10))
-except Exception:
-    ghost_img = None
 
 # Create Environment
 walls = []
@@ -70,7 +103,6 @@ for row_idx, row in enumerate(level_map):
             if tile == 8: player_spawn = (x, y)
             elif tile == 9: ghost_spawns.append((col_idx, row_idx))
         elif tile == 2:
-            # Power Pellet (Bigger)
             p_size = 16
             power_pellets.append(pygame.Rect(x + (TILE_SIZE//2) - (p_size//2), 
                                              y + (TILE_SIZE//2) - (p_size//2), 
@@ -85,7 +117,7 @@ class Player:
         self.dx = 0
         self.dy = 0
         self.score = 0
-        self.lives = 3 # Sistem Nyawa
+        self.lives = 3 
         self.mouth_open = True
         self.animation_timer = 0
 
@@ -156,11 +188,17 @@ class Ghost:
 
     def draw(self, surface):
         if self.is_scared:
-            pygame.draw.rect(surface, CYAN, self.rect, border_radius=5)
-        elif ghost_img:
-            surface.blit(ghost_img, (self.rect.x, self.rect.y))
+            # Gunakan gambar hantu biru jika tersedia
+            if scared_ghost_img:
+                surface.blit(scared_ghost_img, (self.rect.x, self.rect.y))
+            else:
+                pygame.draw.rect(surface, CYAN, self.rect, border_radius=5)
         else:
-            pygame.draw.rect(surface, RED, self.rect, border_radius=5)
+            # Gunakan gambar hantu normal jika tersedia
+            if ghost_img:
+                surface.blit(ghost_img, (self.rect.x, self.rect.y))
+            else:
+                pygame.draw.rect(surface, RED, self.rect, border_radius=5)
 
     def update(self):
         if self.x % TILE_SIZE == 0 and self.y % TILE_SIZE == 0:
@@ -189,10 +227,10 @@ class Ghost:
 pacman = Player(*player_spawn)
 ghosts = [Ghost(gx, gy) for gx, gy in ghost_spawns]
 
-# Game State Variables
+# Game State
 running = True
 game_over = False
-scared_timer = 0 # Menyimpan kapan waktu power-up habis
+scared_timer = 0
 
 while running:
     current_time = pygame.time.get_ticks()
@@ -203,35 +241,34 @@ while running:
             running = False
             
         if event.type == pygame.KEYDOWN and not game_over:
-            if event.key == pygame.K_LEFT:
-                pacman.dx, pacman.dy = -1, 0
-            elif event.key == pygame.K_RIGHT:
-                pacman.dx, pacman.dy = 1, 0
-            elif event.key == pygame.K_UP:
-                pacman.dx, pacman.dy = 0, -1
-            elif event.key == pygame.K_DOWN:
-                pacman.dx, pacman.dy = 0, 1
+            if event.key == pygame.K_LEFT: pacman.dx, pacman.dy = -1, 0
+            elif event.key == pygame.K_RIGHT: pacman.dx, pacman.dy = 1, 0
+            elif event.key == pygame.K_UP: pacman.dx, pacman.dy = 0, -1
+            elif event.key == pygame.K_DOWN: pacman.dx, pacman.dy = 0, 1
 
     # 2. Game Logic Update
     if not game_over:
         pacman.update()
         
-        # Makan Titik Kecil
+        # Makan Titik Kecil (Play Audio)
         for pellet in pellets[:]:
             if pacman.rect.colliderect(pellet):
                 pellets.remove(pellet)
                 pacman.score += 10
+                if chomp_sound: 
+                    chomp_sound.play() 
                 
-        # Makan Power Pellet (Pil Besar)
+        # Makan Power Pellet
         for p_pellet in power_pellets[:]:
             if pacman.rect.colliderect(p_pellet):
                 power_pellets.remove(p_pellet)
                 pacman.score += 50
-                scared_timer = current_time + POWERUP_DURATION # Set timer ke masa depan
+                scared_timer = current_time + POWERUP_DURATION
                 for ghost in ghosts:
                     ghost.is_scared = True
-                    # Putar balik arah hantu secara instan saat kaget (mekanik klasik)
                     ghost.dx, ghost.dy = -ghost.dx, -ghost.dy 
+                if chomp_sound: 
+                    chomp_sound.play()
 
         # Cek status takut hantu
         if current_time > scared_timer:
@@ -243,49 +280,43 @@ while running:
             ghost.update()
             if pacman.rect.colliderect(ghost.rect):
                 if ghost.is_scared:
-                    # Makan hantu
                     pacman.score += 200
-                    ghost.reset_position() # Hantu kembali ke markas
+                    ghost.reset_position() 
                 else:
-                    # Pac-man tertangkap
+                    if death_sound:
+                        death_sound.play() 
+                        
                     pacman.lives -= 1
                     if pacman.lives <= 0:
                         game_over = True
+                        pygame.mixer.music.stop() 
                     else:
-                        # Reset posisi jika masih ada nyawa
                         pacman.reset_position()
                         for g in ghosts:
                             g.reset_position()
-                        pygame.time.delay(1000) # Jeda 1 detik sebelum mulai lagi
+                        pygame.time.delay(1000)
                 
         # Cek kondisi menang
         if len(pellets) == 0 and len(power_pellets) == 0:
             game_over = True
+            pygame.mixer.music.stop()
 
     # 3. Drawing
     screen.fill(BLACK)
-
-    # Draw Walls
     for wall in walls:
         pygame.draw.rect(screen, BLUE, wall, 2, border_radius=5)
-
-    # Draw Pellets & Power Pellets
     for pellet in pellets:
         pygame.draw.circle(screen, WHITE, pellet.center, pellet.width // 2)
     for p_pellet in power_pellets:
-        # Efek kedap-kedip pada power pellet
         if (current_time // 200) % 2 == 0:
             pygame.draw.circle(screen, WHITE, p_pellet.center, p_pellet.width // 2)
 
-    # Draw Entities
     for ghost in ghosts:
         ghost.draw(screen)
     pacman.draw(screen)
 
-    # Draw UI (Score & Lives)
     score_text = font.render(f"Score: {pacman.score}", True, WHITE)
     screen.blit(score_text, (10, 10))
-    
     lives_text = font.render(f"Lives: {pacman.lives}", True, YELLOW)
     screen.blit(lives_text, (SCREEN_WIDTH - 100, 10))
 
