@@ -13,7 +13,6 @@ pygame.font.init()
 # Game Constants
 TILE_SIZE = 40
 FPS = 60
-POWERUP_DURATION = 7000
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SCORE_FILE = os.path.join(BASE_DIR, "scores.json")
 
@@ -40,7 +39,7 @@ def save_score(new_score):
     scores = load_scores()
     scores.append(new_score)
     scores.sort(reverse=True) 
-    scores = scores[:5] # Keep only top 5 scores
+    scores = scores[:5]
     with open(SCORE_FILE, "w") as f:
         json.dump(scores, f)
 
@@ -80,7 +79,7 @@ try:
 except Exception:
     scared_ghost_img = None
 
-# Map Definition (1 = Wall, 0 = Pellet, 2 = Power Pellet, 9 = Ghost, 8 = Player)
+# Map Definition
 level_map = [
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     [1, 8, 0, 0, 0, 2, 1, 9, 2, 0, 0, 0, 0, 0, 1],
@@ -98,14 +97,13 @@ level_map = [
 SCREEN_WIDTH = len(level_map[0]) * TILE_SIZE
 SCREEN_HEIGHT = len(level_map) * TILE_SIZE
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Pac-Man: Smooth Arcade Cornering")
+pygame.display.set_caption("Pac-Man: Endless Mode")
 clock = pygame.time.Clock()
 
 font_title = pygame.font.SysFont("Arial", 48, bold=True)
 font_menu = pygame.font.SysFont("Arial", 28)
 font_score = pygame.font.SysFont("Arial", 24)
 
-# Build Wall Rectangles
 walls = []
 for row_idx, row in enumerate(level_map):
     for col_idx, tile in enumerate(row):
@@ -136,7 +134,6 @@ class Player:
     def draw(self, surface):
         center_x, center_y = self.rect.centerx, self.rect.centery
         radius = self.rect.width // 2
-        
         pygame.draw.circle(surface, YELLOW, (center_x, center_y), radius)
 
         if self.mouth_open:
@@ -167,18 +164,14 @@ class Player:
             self.mouth_open = not self.mouth_open
             self.animation_timer = 0
 
-        # Highly forgiving cornering logic
         if self.next_dx != 0 or self.next_dy != 0:
-            # Find the closest grid intersection instead of the current one
             target_x = round((self.rect.x - 5) / TILE_SIZE) * TILE_SIZE + 5
             target_y = round((self.rect.y - 5) / TILE_SIZE) * TILE_SIZE + 5
             
-            # Massive forgiveness margin (almost half a tile)
             margin = 18 
             can_turn = False
             test_rect = self.rect.copy()
             
-            # Turning horizontally from vertical
             if self.next_dx != 0 and self.dy != 0: 
                 if abs(self.rect.y - target_y) <= margin:
                     test_rect.y = target_y
@@ -189,7 +182,6 @@ class Player:
                         self.next_dx, self.next_dy = 0, 0
                         can_turn = True
 
-            # Turning vertically from horizontal
             elif self.next_dy != 0 and self.dx != 0: 
                 if abs(self.rect.x - target_x) <= margin:
                     test_rect.x = target_x
@@ -200,7 +192,6 @@ class Player:
                         self.next_dx, self.next_dy = 0, 0
                         can_turn = True
             
-            # 180-degree turn or starting from stop
             if not can_turn:
                 test_rect = self.rect.copy()
                 test_rect.x += self.next_dx * self.speed
@@ -209,7 +200,6 @@ class Player:
                     self.dx, self.dy = self.next_dx, self.next_dy
                     self.next_dx, self.next_dy = 0, 0
 
-        # Standard Movement Execution
         self.rect.x += self.dx * self.speed
         if self.check_collisions(walls): 
             self.rect.x -= self.dx * self.speed
@@ -296,6 +286,10 @@ running = True
 scared_timer = 0
 high_scores = load_scores()
 
+# Endless Mode Variables
+current_level = 1
+powerup_duration = 7000 # Default 7 detik
+
 play_music(BGM_LOBBY)
 pacman, ghosts, pellets, power_pellets = reset_level()
 
@@ -310,6 +304,8 @@ while running:
             if game_state == "MENU":
                 if event.key == pygame.K_RETURN:
                     pacman, ghosts, pellets, power_pellets = reset_level()
+                    current_level = 1
+                    powerup_duration = 7000
                     game_state = "PLAYING"
                     high_scores = load_scores()
                     play_music(BGM_INGAME)
@@ -330,7 +326,7 @@ while running:
     screen.fill(BLACK)
 
     if game_state == "MENU":
-        title = font_title.render("PAC-MAN PYTHON", True, YELLOW)
+        title = font_title.render("PAC-MAN: ENDLESS RUN", True, YELLOW)
         start_txt = font_menu.render("Press [ENTER] to Play", True, WHITE)
         score_title = font_menu.render("TOP SCORES", True, CYAN)
         
@@ -358,7 +354,7 @@ while running:
             if pacman.rect.colliderect(p_pellet):
                 power_pellets.remove(p_pellet)
                 pacman.score += 50
-                scared_timer = current_time + POWERUP_DURATION
+                scared_timer = current_time + powerup_duration
                 for ghost in ghosts:
                     ghost.is_scared = True
                     ghost.dx, ghost.dy = -ghost.dx, -ghost.dy 
@@ -390,10 +386,25 @@ while running:
                             g.reset_position()
                         pygame.time.delay(1000)
                 
+        # --- ENDLESS MODE RESET LOGIC ---
         if len(pellets) == 0 and len(power_pellets) == 0:
-            save_score(pacman.score)
-            game_state = "GAMEOVER"
-            pygame.mixer.music.stop()
+            # Save current progress
+            current_score = pacman.score
+            current_lives = pacman.lives
+            
+            # Rebuild map
+            pacman, ghosts, pellets, power_pellets = reset_level()
+            
+            # Restore progress
+            pacman.score = current_score
+            pacman.lives = current_lives
+            
+            # Make it harder: Reduce powerup duration by 1 second each round (minimum 1 second)
+            current_level += 1
+            powerup_duration = max(1000, powerup_duration - 1000)
+            
+            # Brief pause before next wave
+            pygame.time.delay(1000)
 
         for wall in walls:
             pygame.draw.rect(screen, BLUE, wall, 2, border_radius=5)
@@ -408,7 +419,8 @@ while running:
             
         pacman.draw(screen)
 
-        score_text = font_score.render(f"Score: {pacman.score}", True, WHITE)
+        # UI Overlay now shows Current Level
+        score_text = font_score.render(f"Score: {pacman.score}  |  Lvl: {current_level}", True, WHITE)
         lives_text = font_score.render(f"Lives: {pacman.lives}", True, YELLOW)
         screen.blit(score_text, (10, 10))
         screen.blit(lives_text, (SCREEN_WIDTH - 100, 10))
@@ -417,11 +429,8 @@ while running:
         for wall in walls: 
             pygame.draw.rect(screen, (0, 0, 100), wall, 2, border_radius=5)
         
-        msg = "YOU WIN!" if (len(pellets) == 0 and len(power_pellets) == 0) else "GAME OVER"
-        color = GREEN if (len(pellets) == 0 and len(power_pellets) == 0) else RED
-        
-        end_text = font_title.render(msg, True, color)
-        score_txt = font_menu.render(f"Final Score: {pacman.score}", True, WHITE)
+        end_text = font_title.render("GAME OVER", True, RED)
+        score_txt = font_menu.render(f"Final Score: {pacman.score} (Lvl {current_level})", True, WHITE)
         retry_txt = font_score.render("Press [ENTER] to return to Lobby", True, YELLOW)
         
         screen.blit(end_text, (SCREEN_WIDTH//2 - end_text.get_width()//2, SCREEN_HEIGHT//2 - 60))
