@@ -98,7 +98,7 @@ level_map = [
 SCREEN_WIDTH = len(level_map[0]) * TILE_SIZE
 SCREEN_HEIGHT = len(level_map) * TILE_SIZE
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Pac-Man: Arcade Edition")
+pygame.display.set_caption("Pac-Man: Smooth Arcade Cornering")
 clock = pygame.time.Clock()
 
 font_title = pygame.font.SysFont("Arial", 48, bold=True)
@@ -120,6 +120,8 @@ class Player:
         self.speed = 4
         self.dx = 0
         self.dy = 0
+        self.next_dx = 0  
+        self.next_dy = 0  
         self.score = 0
         self.lives = 3 
         self.mouth_open = True
@@ -129,15 +131,14 @@ class Player:
         self.rect.x = self.spawn_x + 5
         self.rect.y = self.spawn_y + 5
         self.dx, self.dy = 0, 0
+        self.next_dx, self.next_dy = 0, 0
 
     def draw(self, surface):
         center_x, center_y = self.rect.centerx, self.rect.centery
         radius = self.rect.width // 2
         
-        # Base Yellow Circle
         pygame.draw.circle(surface, YELLOW, (center_x, center_y), radius)
 
-        # Mouth Animation
         if self.mouth_open:
             angle = 0
             if self.dx == 1: angle = 0
@@ -152,27 +153,70 @@ class Player:
             p2 = (center_x + radius * math.cos(rad2), center_y - radius * math.sin(rad2))
             pygame.draw.polygon(surface, BLACK, [(center_x, center_y), p1, p2])
 
+    def check_collisions(self, tiles, rect_to_check=None):
+        if rect_to_check is None:
+            rect_to_check = self.rect
+        for tile in tiles:
+            if rect_to_check.colliderect(tile): 
+                return True
+        return False
+
     def update(self):
         self.animation_timer += 1
         if self.animation_timer >= 10:
             self.mouth_open = not self.mouth_open
             self.animation_timer = 0
 
-        # Horizontal Movement & Collision
+        # Highly forgiving cornering logic
+        if self.next_dx != 0 or self.next_dy != 0:
+            # Find the closest grid intersection instead of the current one
+            target_x = round((self.rect.x - 5) / TILE_SIZE) * TILE_SIZE + 5
+            target_y = round((self.rect.y - 5) / TILE_SIZE) * TILE_SIZE + 5
+            
+            # Massive forgiveness margin (almost half a tile)
+            margin = 18 
+            can_turn = False
+            test_rect = self.rect.copy()
+            
+            # Turning horizontally from vertical
+            if self.next_dx != 0 and self.dy != 0: 
+                if abs(self.rect.y - target_y) <= margin:
+                    test_rect.y = target_y
+                    test_rect.x += self.next_dx * self.speed
+                    if not self.check_collisions(walls, test_rect):
+                        self.rect.y = target_y 
+                        self.dx, self.dy = self.next_dx, self.next_dy
+                        self.next_dx, self.next_dy = 0, 0
+                        can_turn = True
+
+            # Turning vertically from horizontal
+            elif self.next_dy != 0 and self.dx != 0: 
+                if abs(self.rect.x - target_x) <= margin:
+                    test_rect.x = target_x
+                    test_rect.y += self.next_dy * self.speed
+                    if not self.check_collisions(walls, test_rect):
+                        self.rect.x = target_x 
+                        self.dx, self.dy = self.next_dx, self.next_dy
+                        self.next_dx, self.next_dy = 0, 0
+                        can_turn = True
+            
+            # 180-degree turn or starting from stop
+            if not can_turn:
+                test_rect = self.rect.copy()
+                test_rect.x += self.next_dx * self.speed
+                test_rect.y += self.next_dy * self.speed
+                if not self.check_collisions(walls, test_rect):
+                    self.dx, self.dy = self.next_dx, self.next_dy
+                    self.next_dx, self.next_dy = 0, 0
+
+        # Standard Movement Execution
         self.rect.x += self.dx * self.speed
         if self.check_collisions(walls): 
             self.rect.x -= self.dx * self.speed
 
-        # Vertical Movement & Collision
         self.rect.y += self.dy * self.speed
         if self.check_collisions(walls): 
             self.rect.y -= self.dy * self.speed
-
-    def check_collisions(self, tiles):
-        for tile in tiles:
-            if self.rect.colliderect(tile): 
-                return True
-        return False
 
 class Ghost:
     def __init__(self, grid_x, grid_y):
@@ -206,18 +250,15 @@ class Ghost:
                 pygame.draw.rect(surface, RED, self.rect, border_radius=5)
 
     def update(self):
-        # Only change direction when aligned perfectly with the grid
         if self.x % TILE_SIZE == 0 and self.y % TILE_SIZE == 0:
             grid_x, grid_y = int(self.x // TILE_SIZE), int(self.y // TILE_SIZE)
             possible_dirs = []
             
-            # Check all 4 directions for available paths
             for nx, ny in [(1,0), (-1,0), (0,1), (0,-1)]:
                 if 0 <= grid_y + ny < len(level_map) and 0 <= grid_x + nx < len(level_map[0]):
                     if level_map[grid_y + ny][grid_x + nx] != 1:
                         possible_dirs.append((nx, ny))
             
-            # Prevent 180-degree turns unless it's a dead end
             if len(possible_dirs) > 1 and (-self.dx, -self.dy) in possible_dirs:
                 possible_dirs.remove((-self.dx, -self.dy))
                 
@@ -255,10 +296,7 @@ running = True
 scared_timer = 0
 high_scores = load_scores()
 
-# Play Lobby BGM on startup
 play_music(BGM_LOBBY)
-
-# Initial Entity Declaration
 pacman, ghosts, pellets, power_pellets = reset_level()
 
 while running:
@@ -271,7 +309,6 @@ while running:
         if event.type == pygame.KEYDOWN:
             if game_state == "MENU":
                 if event.key == pygame.K_RETURN:
-                    # Start Game -> Play in-game BGM
                     pacman, ghosts, pellets, power_pellets = reset_level()
                     game_state = "PLAYING"
                     high_scores = load_scores()
@@ -279,16 +316,15 @@ while running:
                     
             elif game_state == "GAMEOVER":
                 if event.key == pygame.K_RETURN:
-                    # Return to Menu -> Reload scores & Play lobby BGM
                     game_state = "MENU"
                     high_scores = load_scores()
                     play_music(BGM_LOBBY)
 
             elif game_state == "PLAYING":
-                if event.key == pygame.K_LEFT: pacman.dx, pacman.dy = -1, 0
-                elif event.key == pygame.K_RIGHT: pacman.dx, pacman.dy = 1, 0
-                elif event.key == pygame.K_UP: pacman.dx, pacman.dy = 0, -1
-                elif event.key == pygame.K_DOWN: pacman.dx, pacman.dy = 0, 1
+                if event.key == pygame.K_LEFT: pacman.next_dx, pacman.next_dy = -1, 0
+                elif event.key == pygame.K_RIGHT: pacman.next_dx, pacman.next_dy = 1, 0
+                elif event.key == pygame.K_UP: pacman.next_dx, pacman.next_dy = 0, -1
+                elif event.key == pygame.K_DOWN: pacman.next_dx, pacman.next_dy = 0, 1
 
     # --- DRAW & UPDATE LOGIC ---
     screen.fill(BLACK)
@@ -313,13 +349,11 @@ while running:
     elif game_state == "PLAYING":
         pacman.update()
         
-        # Eat Regular Pellets (NO Sound)
         for pellet in pellets[:]:
             if pacman.rect.colliderect(pellet):
                 pellets.remove(pellet)
                 pacman.score += 10
                 
-        # Eat Power Pellets (Play Chomp Sound)
         for p_pellet in power_pellets[:]:
             if pacman.rect.colliderect(p_pellet):
                 power_pellets.remove(p_pellet)
@@ -327,17 +361,14 @@ while running:
                 scared_timer = current_time + POWERUP_DURATION
                 for ghost in ghosts:
                     ghost.is_scared = True
-                    # Instantly reverse direction
                     ghost.dx, ghost.dy = -ghost.dx, -ghost.dy 
                 if chomp_sound: 
                     chomp_sound.play()
 
-        # Check Scared Status Timer
         if current_time > scared_timer:
             for ghost in ghosts: 
                 ghost.is_scared = False
 
-        # Ghost Collision Logic
         for ghost in ghosts:
             ghost.update()
             if pacman.rect.colliderect(ghost.rect):
@@ -359,19 +390,16 @@ while running:
                             g.reset_position()
                         pygame.time.delay(1000)
                 
-        # Win Condition Checker
         if len(pellets) == 0 and len(power_pellets) == 0:
             save_score(pacman.score)
             game_state = "GAMEOVER"
             pygame.mixer.music.stop()
 
-        # Render Game Objects
         for wall in walls:
             pygame.draw.rect(screen, BLUE, wall, 2, border_radius=5)
         for pellet in pellets:
             pygame.draw.circle(screen, WHITE, pellet.center, pellet.width // 2)
         for p_pellet in power_pellets:
-            # Blinking effect for power pellets
             if (current_time // 200) % 2 == 0:
                 pygame.draw.circle(screen, WHITE, p_pellet.center, p_pellet.width // 2)
 
@@ -380,14 +408,12 @@ while running:
             
         pacman.draw(screen)
 
-        # UI Overlay
         score_text = font_score.render(f"Score: {pacman.score}", True, WHITE)
         lives_text = font_score.render(f"Lives: {pacman.lives}", True, YELLOW)
         screen.blit(score_text, (10, 10))
         screen.blit(lives_text, (SCREEN_WIDTH - 100, 10))
 
     elif game_state == "GAMEOVER":
-        # Draw Darkened Map Background
         for wall in walls: 
             pygame.draw.rect(screen, (0, 0, 100), wall, 2, border_radius=5)
         
