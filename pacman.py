@@ -12,7 +12,7 @@ pygame.font.init()
 
 # Game Constants
 TILE_SIZE = 40
-FPS = 60
+POWERUP_DURATION = 7000
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SCORE_FILE = os.path.join(BASE_DIR, "scores.json")
 
@@ -53,7 +53,7 @@ def play_music(music_path):
         pygame.mixer.music.set_volume(0.4)
         pygame.mixer.music.play(-1)
     except Exception as e:
-        print(f"Error loading {music_path}: {e}")
+        pass
 
 try:
     chomp_sound = pygame.mixer.Sound(os.path.join(BASE_DIR, "chomp.mp3"))
@@ -97,7 +97,7 @@ level_map = [
 SCREEN_WIDTH = len(level_map[0]) * TILE_SIZE
 SCREEN_HEIGHT = len(level_map) * TILE_SIZE
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Pac-Man: Endless Mode")
+pygame.display.set_caption("Pac-Man: Hardcore Endless")
 clock = pygame.time.Clock()
 
 font_title = pygame.font.SysFont("Arial", 48, bold=True)
@@ -260,7 +260,7 @@ class Ghost:
         self.rect.x = self.x + 5
         self.rect.y = self.y + 5
 
-def reset_level():
+def reset_level(current_level):
     pellets, power_pellets, ghost_spawns = [], [], []
     player_spawn = (TILE_SIZE, TILE_SIZE)
     
@@ -278,7 +278,15 @@ def reset_level():
                 power_pellets.append(pygame.Rect(x + (TILE_SIZE//2) - (p_size//2), 
                                                  y + (TILE_SIZE//2) - (p_size//2), p_size, p_size))
                 
-    return Player(*player_spawn), [Ghost(gx, gy) for gx, gy in ghost_spawns], pellets, power_pellets
+    # Ghost Scaling Logic based on current level (Max 5)
+    ghosts = []
+    num_ghosts_to_spawn = min(current_level, 5)
+    if ghost_spawns:
+        for i in range(num_ghosts_to_spawn):
+            gx, gy = ghost_spawns[i % len(ghost_spawns)]
+            ghosts.append(Ghost(gx, gy))
+
+    return Player(*player_spawn), ghosts, pellets, power_pellets
 
 # --- INITIAL GAME STATE ---
 game_state = "MENU"
@@ -286,12 +294,13 @@ running = True
 scared_timer = 0
 high_scores = load_scores()
 
-# Endless Mode Variables
+# Progress Variables
 current_level = 1
-powerup_duration = 7000 # Default 7 detik
+powerup_duration = 7000 
+current_fps = 40 # Base FPS set to 40
 
 play_music(BGM_LOBBY)
-pacman, ghosts, pellets, power_pellets = reset_level()
+pacman, ghosts, pellets, power_pellets = reset_level(current_level)
 
 while running:
     current_time = pygame.time.get_ticks()
@@ -303,9 +312,10 @@ while running:
         if event.type == pygame.KEYDOWN:
             if game_state == "MENU":
                 if event.key == pygame.K_RETURN:
-                    pacman, ghosts, pellets, power_pellets = reset_level()
                     current_level = 1
+                    current_fps = 40 # Reset FPS on new game
                     powerup_duration = 7000
+                    pacman, ghosts, pellets, power_pellets = reset_level(current_level)
                     game_state = "PLAYING"
                     high_scores = load_scores()
                     play_music(BGM_INGAME)
@@ -386,24 +396,30 @@ while running:
                             g.reset_position()
                         pygame.time.delay(1000)
                 
-        # --- ENDLESS MODE RESET LOGIC ---
+        # --- ENDLESS MODE PROGRESSION LOGIC ---
         if len(pellets) == 0 and len(power_pellets) == 0:
-            # Save current progress
             current_score = pacman.score
             current_lives = pacman.lives
             
-            # Rebuild map
-            pacman, ghosts, pellets, power_pellets = reset_level()
+            # Life Recovery Mechanic (Up to Level 7 only)
+            if current_level <= 7 and current_lives < 3:
+                current_lives += 1
             
-            # Restore progress
-            pacman.score = current_score
-            pacman.lives = current_lives
-            
-            # Make it harder: Reduce powerup duration by 1 second each round (minimum 1 second)
+            # Level Progression
             current_level += 1
             powerup_duration = max(1000, powerup_duration - 1000)
             
-            # Brief pause before next wave
+            # FPS Scaling Logic (Base 40)
+            if current_level <= 5:
+                current_fps = 40
+            else:
+                current_fps = 40 + ((current_level - 5) * 5)
+            
+            pacman, ghosts, pellets, power_pellets = reset_level(current_level)
+            
+            pacman.score = current_score
+            pacman.lives = current_lives
+            
             pygame.time.delay(1000)
 
         for wall in walls:
@@ -419,7 +435,7 @@ while running:
             
         pacman.draw(screen)
 
-        # UI Overlay now shows Current Level
+        # UI Overlay - FPS text removed
         score_text = font_score.render(f"Score: {pacman.score}  |  Lvl: {current_level}", True, WHITE)
         lives_text = font_score.render(f"Lives: {pacman.lives}", True, YELLOW)
         screen.blit(score_text, (10, 10))
@@ -438,7 +454,9 @@ while running:
         screen.blit(retry_txt, (SCREEN_WIDTH//2 - retry_txt.get_width()//2, SCREEN_HEIGHT//2 + 50))
 
     pygame.display.flip()
-    clock.tick(FPS)
+    
+    # Apply dynamic FPS logic
+    clock.tick(current_fps)
 
 pygame.quit()
 sys.exit()
