@@ -313,15 +313,13 @@ while running:
     elif game_state == "PLAYING":
         pacman.update()
         
-        # Eat Regular Pellets
+        # Eat Regular Pellets (NO Sound)
         for pellet in pellets[:]:
             if pacman.rect.colliderect(pellet):
                 pellets.remove(pellet)
                 pacman.score += 10
-                if chomp_sound: 
-                    chomp_sound.play() 
                 
-        # Eat Power Pellets
+        # Eat Power Pellets (Play Chomp Sound)
         for p_pellet in power_pellets[:]:
             if pacman.rect.colliderect(p_pellet):
                 power_pellets.remove(p_pellet)
