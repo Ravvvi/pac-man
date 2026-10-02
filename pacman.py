@@ -96,6 +96,9 @@ level_map = [
 
 SCREEN_WIDTH = len(level_map[0]) * TILE_SIZE
 SCREEN_HEIGHT = len(level_map) * TILE_SIZE
+
+# Global flag to track fullscreen status
+is_fullscreen = False
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Pac-Man: Hardcore Endless")
 clock = pygame.time.Clock()
@@ -278,7 +281,6 @@ def reset_level(current_level):
                 power_pellets.append(pygame.Rect(x + (TILE_SIZE//2) - (p_size//2), 
                                                  y + (TILE_SIZE//2) - (p_size//2), p_size, p_size))
                 
-    # Ghost Scaling Logic based on current level (Max 5)
     ghosts = []
     num_ghosts_to_spawn = min(current_level, 5)
     if ghost_spawns:
@@ -297,7 +299,7 @@ high_scores = load_scores()
 # Progress Variables
 current_level = 1
 powerup_duration = 7000 
-current_fps = 40 # Base FPS set to 40
+current_fps = 40
 
 play_music(BGM_LOBBY)
 pacman, ghosts, pellets, power_pellets = reset_level(current_level)
@@ -310,10 +312,18 @@ while running:
             running = False
             
         if event.type == pygame.KEYDOWN:
+            # Fullscreen toggle via F key
+            if event.key == pygame.K_f:
+                is_fullscreen = not is_fullscreen
+                if is_fullscreen:
+                    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN | pygame.SCALED)
+                else:
+                    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+
             if game_state == "MENU":
                 if event.key == pygame.K_RETURN:
                     current_level = 1
-                    current_fps = 40 # Reset FPS on new game
+                    current_fps = 40 
                     powerup_duration = 7000
                     pacman, ghosts, pellets, power_pellets = reset_level(current_level)
                     game_state = "PLAYING"
@@ -337,7 +347,7 @@ while running:
 
     if game_state == "MENU":
         title = font_title.render("PAC-MAN: ENDLESS RUN", True, YELLOW)
-        start_txt = font_menu.render("Press [ENTER] to Play", True, WHITE)
+        start_txt = font_menu.render("Press [ENTER] to Play (F for Fullscreen)", True, WHITE)
         score_title = font_menu.render("TOP SCORES", True, CYAN)
         
         screen.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 80))
@@ -358,7 +368,7 @@ while running:
         for pellet in pellets[:]:
             if pacman.rect.colliderect(pellet):
                 pellets.remove(pellet)
-                pacman.score += 10
+                pacman.score += 4 # Changed to 4 points per pellet
                 
         for p_pellet in power_pellets[:]:
             if pacman.rect.colliderect(p_pellet):
@@ -401,15 +411,12 @@ while running:
             current_score = pacman.score
             current_lives = pacman.lives
             
-            # Life Recovery Mechanic (Up to Level 7 only)
-            if current_level <= 7 and current_lives < 3:
+            if current_level <= 10 and current_lives < 3:
                 current_lives += 1
             
-            # Level Progression
             current_level += 1
             powerup_duration = max(1000, powerup_duration - 1000)
             
-            # FPS Scaling Logic (Base 40)
             if current_level <= 5:
                 current_fps = 40
             else:
@@ -435,7 +442,6 @@ while running:
             
         pacman.draw(screen)
 
-        # UI Overlay - FPS text removed
         score_text = font_score.render(f"Score: {pacman.score}  |  Lvl: {current_level}", True, WHITE)
         lives_text = font_score.render(f"Lives: {pacman.lives}", True, YELLOW)
         screen.blit(score_text, (10, 10))
@@ -447,7 +453,7 @@ while running:
         
         end_text = font_title.render("GAME OVER", True, RED)
         score_txt = font_menu.render(f"Final Score: {pacman.score} (Lvl {current_level})", True, WHITE)
-        retry_txt = font_score.render("Press [ENTER] to return to Lobby", True, YELLOW)
+        retry_txt = font_score.render("Press [ENTER] to return to Lobby (F to toggle Fullscreen)", True, YELLOW)
         
         screen.blit(end_text, (SCREEN_WIDTH//2 - end_text.get_width()//2, SCREEN_HEIGHT//2 - 60))
         screen.blit(score_txt, (SCREEN_WIDTH//2 - score_txt.get_width()//2, SCREEN_HEIGHT//2))
@@ -455,7 +461,6 @@ while running:
 
     pygame.display.flip()
     
-    # Apply dynamic FPS logic
     clock.tick(current_fps)
 
 pygame.quit()
